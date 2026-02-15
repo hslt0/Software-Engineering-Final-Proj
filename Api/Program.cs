@@ -1,10 +1,13 @@
 using Scalar.AspNetCore;
+using Telegram.Bot;
 using Telegram.Bot.Types;
 using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddLogging();
+builder.Configuration.AddEnvironmentVariables();
+
+builder.Services.AddSingleton<ITelegramBotClient>(new TelegramBotClient(builder.Configuration["TelegramBotToken"]!));
 
 // Add services to the container.
 builder.Services.Configure<JsonOptions>(options =>
@@ -26,10 +29,14 @@ if (app.Environment.IsDevelopment())
 
 app.MapGet("/health", () => "Health OK");
 
-app.MapPost("/", (Update update, ILogger<Program> logger) => 
+app.MapPost("/", async (Update update, ITelegramBotClient client) =>
 {
-    logger.LogInformation("Отримано текст: {Text}", update.Message?.Text ?? "No text");
-    return Results.Ok("Bot is working");
+    if (update.Message == null) return Results.BadRequest();
+    
+    var chatId = update.Message.Chat.Id;
+    await client.SendMessage(chatId, "Hello");
+
+    return Results.Ok();
 });
     
 app.Run();
