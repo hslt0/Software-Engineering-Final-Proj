@@ -1,13 +1,25 @@
+using Api;
 using Scalar.AspNetCore;
 using Telegram.Bot;
 using Telegram.Bot.Types;
-using JsonOptions = Microsoft.AspNetCore.Http.Json.JsonOptions;
+using Microsoft.AspNetCore.Http.Json;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Configuration.AddEnvironmentVariables();
 
-builder.Services.AddSingleton<ITelegramBotClient>(new TelegramBotClient(builder.Configuration["TelegramBotToken"]!));
+builder.Services.AddHttpClient("TelegramBotClient")
+    .AddTypedClient<ITelegramBotClient>((httpClient, _) =>
+    {
+        var token = builder.Configuration["TelegramBotToken"];
+        return string.IsNullOrEmpty(token)
+            ? throw new InvalidOperationException("Telegram Bot Token not set")
+            : new TelegramBotClient(token, httpClient);
+    });
+
+builder.Services.AddHealthChecks();
+
+builder.Services.AddScoped<TelegramBot>();
 
 // Add services to the container.
 builder.Services.Configure<JsonOptions>(options =>
@@ -27,16 +39,20 @@ if (app.Environment.IsDevelopment())
     app.MapScalarApiReference();
 }
 
-app.MapGet("/health", () => "Health OK");
+app.UseHealthChecks("/health");
 
-app.MapPost("/", async (Update update, ITelegramBotClient client) =>
+app.UseHttpsRedirection();
+
+app.MapPost("/", async (Update update, TelegramBot bot, CancellationToken ct) =>
 {
-    if (update.Message == null) return Results.BadRequest();
-    
-    var chatId = update.Message.Chat.Id;
-    await client.SendMessage(chatId, "Hello");
-
-    return Results.Ok();
+    try
+    {
+        await bot.Update(update, ct);
+    }
+    catch (Exception e)
+    {
+        app.Logger.LogError(e, "Error handling update");
+    }
 });
     
 app.Run();
